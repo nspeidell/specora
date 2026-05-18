@@ -17,15 +17,15 @@ const saveResponseSchema = z.object({
   questionKey: z.string(),
   questionText: z.string(),
   responseText: z.string().optional(),
-  responseMetadata: z.record(z.unknown()).optional(), // for multiselect arrays etc.
+  responseMetadata: z.record(z.unknown()).optional(),
   stepNumber: z.number().int().min(1).max(TOTAL_STEPS),
 });
 
-// GET — fetch current session state + existing responses
 export async function GET(
   _req: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params;
   const { userId: clerkUserId } = await auth();
   if (!clerkUserId) return Response.json({ error: "Unauthorized" }, { status: 401 });
 
@@ -43,7 +43,7 @@ export async function GET(
   const [project] = await db
     .select()
     .from(projects)
-    .where(and(eq(projects.id, params.id), eq(projects.ownerId, user.id)))
+    .where(and(eq(projects.id, id), eq(projects.ownerId, user.id)))
     .limit(1);
 
   if (!project) return Response.json({ error: "Project not found" }, { status: 404 });
@@ -53,7 +53,7 @@ export async function GET(
     .from(discoverySessions)
     .where(
       and(
-        eq(discoverySessions.projectId, params.id),
+        eq(discoverySessions.projectId, id),
         eq(discoverySessions.userId, user.id)
       )
     )
@@ -69,11 +69,11 @@ export async function GET(
   return Response.json({ project, session, responses });
 }
 
-// POST — save a single response and advance the step
 export async function POST(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params;
   const { userId: clerkUserId } = await auth();
   if (!clerkUserId) return Response.json({ error: "Unauthorized" }, { status: 401 });
 
@@ -107,7 +107,7 @@ export async function POST(
     .from(discoverySessions)
     .where(
       and(
-        eq(discoverySessions.projectId, params.id),
+        eq(discoverySessions.projectId, id),
         eq(discoverySessions.userId, user.id)
       )
     )
@@ -115,25 +115,9 @@ export async function POST(
 
   if (!session) return Response.json({ error: "Session not found" }, { status: 404 });
 
-  // Upsert: delete existing response for this step if re-answering, then insert
-  const existing = await db
-    .select({ id: discoveryResponses.id })
-    .from(discoveryResponses)
-    .where(
-      and(
-        eq(discoveryResponses.sessionId, session.id),
-        eq(discoveryResponses.questionKey, questionKey)
-      )
-    )
-    .limit(1);
-
-  if (existing.length > 0) {
-    // Re-answering: just insert a new one (we keep history)
-  }
-
   await db.insert(discoveryResponses).values({
     sessionId: session.id,
-    projectId: params.id,
+    projectId: id,
     questionKey,
     questionText,
     responseText: responseText ?? "",
@@ -141,14 +125,12 @@ export async function POST(
     stepNumber,
   });
 
-  // Advance current step on the session
   const nextStep = Math.max(session.currentStep ?? 0, stepNumber);
   await db
     .update(discoverySessions)
     .set({ currentStep: nextStep })
     .where(eq(discoverySessions.id, session.id));
 
-  // If last step, mark session complete and project as classified
   if (stepNumber === TOTAL_STEPS) {
     await db
       .update(discoverySessions)
@@ -158,15 +140,11 @@ export async function POST(
     await db
       .update(projects)
       .set({ status: "classified", updatedAt: new Date() })
-      .where(eq(projects.id, params.id));
+      .where(eq(projects.id, id));
 
     return Response.json({ done: true, nextStep: null });
   }
 
   const nextQuestion = getQuestion(stepNumber + 1);
-  return Response.json({
-    done: false,
-    nextStep: stepNumber + 1,
-    nextQuestion,
-  });
+  return Response.json({ done: false, nextStep: stepNumber + 1, nextQuestion });
 }

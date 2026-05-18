@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, use } from "react";
 import { useRouter } from "next/navigation";
 import {
   DISCOVERY_QUESTIONS,
@@ -15,10 +15,8 @@ import {
   Zap,
 } from "lucide-react";
 
-// ── Answer state ──────────────────────────────────────────────
 type Answers = Record<string, string | string[]>;
 
-// ── Question renderer ─────────────────────────────────────────
 function QuestionInput({
   question,
   value,
@@ -127,12 +125,12 @@ function QuestionInput({
   return null;
 }
 
-// ── Main page ─────────────────────────────────────────────────
 export default function DiscoverPage({
   params,
 }: {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }) {
+  const { id } = use(params);
   const router = useRouter();
   const [currentStep, setCurrentStep] = useState(1);
   const [answers, setAnswers] = useState<Answers>({});
@@ -169,7 +167,7 @@ export default function DiscoverPage({
       : undefined;
 
     try {
-      const res = await fetch(`/api/projects/${params.id}/discover`, {
+      const res = await fetch(`/api/projects/${id}/discover`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -191,7 +189,7 @@ export default function DiscoverPage({
       if (data.done) {
         setDone(true);
         setTimeout(() => {
-          router.push(`/projects/${params.id}/classify`);
+          router.push(`/projects/${id}/classify`);
         }, 2000);
       } else {
         setCurrentStep((s) => s + 1);
@@ -207,7 +205,6 @@ export default function DiscoverPage({
     if (currentStep > 1) setCurrentStep((s) => s - 1);
   }
 
-  // ── Done state ─────────────────────────────────────────────
   if (done) {
     return (
       <div className="min-h-full flex items-center justify-center">
@@ -229,10 +226,8 @@ export default function DiscoverPage({
     );
   }
 
-  // ── Main Q&A ───────────────────────────────────────────────
   return (
     <div className="min-h-full flex flex-col">
-      {/* Progress bar */}
       <div className="h-1 bg-border">
         <div
           className="h-full gradient-brand transition-all duration-500"
@@ -242,7 +237,6 @@ export default function DiscoverPage({
 
       <div className="flex-1 flex items-start justify-center pt-12 px-4 pb-8">
         <div className="w-full max-w-xl">
-          {/* Header */}
           <div className="flex items-center gap-2 mb-8">
             <div className="flex items-center justify-center w-6 h-6 rounded gradient-brand">
               <Zap className="w-3.5 h-3.5 text-white" />
@@ -255,7 +249,6 @@ export default function DiscoverPage({
             </span>
           </div>
 
-          {/* Question */}
           <div className="mb-6">
             <h2 className="text-xl font-semibold text-foreground mb-2 leading-snug">
               {question.question}
@@ -265,7 +258,6 @@ export default function DiscoverPage({
             )}
           </div>
 
-          {/* Input */}
           <div className="mb-6">
             <QuestionInput
               question={question}
@@ -274,14 +266,12 @@ export default function DiscoverPage({
             />
           </div>
 
-          {/* Error */}
           {error && (
             <p className="text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-md px-3 py-2 mb-4">
               {error}
             </p>
           )}
 
-          {/* Navigation */}
           <div className="flex items-center gap-3">
             {currentStep > 1 && (
               <button
@@ -320,7 +310,6 @@ export default function DiscoverPage({
             </button>
           </div>
 
-          {/* Skip hint for optional questions */}
           {!question.required && (
             <button
               type="button"
