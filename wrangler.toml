@@ -16,10 +16,6 @@ bucket_name = "specora-assets"
 binding = "AI_QUEUE"
 queue = "specora-ai-queue"
 
-[[queues.consumers]]
-queue = "specora-ai-queue"
-max_batch_size = 1
-max_retries = 3
 
 [[kv_namespaces]]
 binding = "CACHE"
