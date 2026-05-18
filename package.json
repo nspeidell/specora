@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "opennextjs-cloudflare build",
+    "preview": "opennextjs-cloudflare preview",
     "start": "next start",
     "lint": "eslint"
   },
@@ -12,6 +13,7 @@
     "@anthropic-ai/sdk": "^0.96.0",
     "@clerk/nextjs": "^7.3.5",
     "@hookform/resolvers": "^5.2.2",
+    "@opennextjs/cloudflare": "^1.19.10",
     "@stripe/stripe-js": "^9.5.0",
     "ai": "^6.0.184",
     "class-variance-authority": "^0.7.1",
