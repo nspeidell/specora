@@ -1,0 +1,29 @@
+name = "specora"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+pages_build_output_dir = ".vercel/output/static"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "specora-db"
+database_id = "abd7ceda-f4e1-4db9-a70b-4cdd00a9f43f"
+
+[[r2_buckets]]
+binding = "ASSETS"
+bucket_name = "specora-assets"
+
+[[queues.producers]]
+binding = "AI_QUEUE"
+queue = "specora-ai-queue"
+
+[[queues.consumers]]
+queue = "specora-ai-queue"
+max_batch_size = 1
+max_retries = 3
+
+[[kv_namespaces]]
+binding = "CACHE"
+id = "bd76a0553a37499e919d6ac3cfa558f1"
+
+[vars]
+ENVIRONMENT = "development"

@@ -1,3 +1,9 @@
 ignoredBuiltDependencies:
+  - '@clerk/shared'
   - sharp
   - unrs-resolver
+onlyBuiltDependencies:
+  - core-js
+  - esbuild
+  - protobufjs
+  - workerd
