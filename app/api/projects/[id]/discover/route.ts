@@ -17,7 +17,7 @@ const saveResponseSchema = z.object({
   questionKey: z.string(),
   questionText: z.string(),
   responseText: z.string().optional(),
-  responseMetadata: z.record(z.unknown()).optional(),
+  responseMetadata: z.record(z.string(), z.unknown()).optional(),
   stepNumber: z.number().int().min(1).max(TOTAL_STEPS),
 });
 
