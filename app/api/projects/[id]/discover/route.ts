@@ -11,8 +11,6 @@ import {
 import { getQuestion, TOTAL_STEPS } from "@/lib/discovery/questions";
 import { z } from "zod";
 
-export const runtime = "edge";
-
 const saveResponseSchema = z.object({
   questionKey: z.string(),
   questionText: z.string(),

@@ -3,8 +3,6 @@ import { Webhook } from "svix";
 import { getDB } from "@/lib/db/client";
 import { users } from "@/lib/db/schema";
 
-export const runtime = "edge";
-
 type EmailAddress = {
   id: string;
   email_address: string;

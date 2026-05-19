@@ -5,8 +5,6 @@ import { getDB } from "@/lib/db/client";
 import { users, projects, discoverySessions } from "@/lib/db/schema";
 import { z } from "zod";
 
-export const runtime = "edge";
-
 const createProjectSchema = z.object({
   name: z.string().min(1).max(120),
   description: z.string().min(1).max(2000),
