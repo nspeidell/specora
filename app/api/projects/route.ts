@@ -13,67 +13,77 @@ const createProjectSchema = z.object({
 });
 
 export async function POST(request: Request) {
-  const { userId: clerkUserId } = await auth();
-  if (!clerkUserId) {
-    return Response.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  let body: unknown;
   try {
-    body = await request.json();
-  } catch {
-    return Response.json({ error: "Invalid JSON" }, { status: 400 });
-  }
+    const { userId: clerkUserId } = await auth();
+    if (!clerkUserId) {
+      return Response.json({ error: "Unauthorized" }, { status: 401 });
+    }
 
-  const parsed = createProjectSchema.safeParse(body);
-  if (!parsed.success) {
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      return Response.json({ error: "Invalid JSON" }, { status: 400 });
+    }
+
+    const parsed = createProjectSchema.safeParse(body);
+    if (!parsed.success) {
+      return Response.json(
+        { error: "Validation failed", issues: parsed.error.issues },
+        { status: 422 }
+      );
+    }
+
+    const { name, description } = parsed.data;
+
+    const { env } = await getCloudflareContext();
+    const db = getDB(env as { DB: D1Database });
+
+    // Resolve internal user ID from Clerk ID
+    const [user] = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.clerkUserId, clerkUserId))
+      .limit(1);
+
+    if (!user) {
+      return Response.json(
+        { error: "User not found — try signing out and back in." },
+        { status: 404 }
+      );
+    }
+
+    // Create project
+    const projectId = crypto.randomUUID();
+    await db.insert(projects).values({
+      id: projectId,
+      ownerId: user.id,
+      name,
+      description,
+      status: "discovery",
+    });
+
+    // Create discovery session
+    const sessionId = crypto.randomUUID();
+    await db.insert(discoverySessions).values({
+      id: sessionId,
+      projectId,
+      userId: user.id,
+      status: "in_progress",
+      currentStep: 0,
+      totalSteps: 12,
+    });
+
+    return Response.json({ projectId, sessionId }, { status: 201 });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const stack = err instanceof Error ? err.stack : undefined;
+    console.error("POST /api/projects error:", message, stack);
     return Response.json(
-      { error: "Validation failed", issues: parsed.error.issues },
-      { status: 422 }
+      { error: "Internal error", detail: message, stack },
+      { status: 500 }
     );
   }
-
-  const { name, description } = parsed.data;
-
-  const { env } = await getCloudflareContext();
-  const db = getDB(env as { DB: D1Database });
-
-  // Resolve internal user ID from Clerk ID
-  const [user] = await db
-    .select({ id: users.id })
-    .from(users)
-    .where(eq(users.clerkUserId, clerkUserId))
-    .limit(1);
-
-  if (!user) {
-    return Response.json(
-      { error: "User not found — try signing out and back in." },
-      { status: 404 }
-    );
-  }
-
-  // Create project
-  const projectId = crypto.randomUUID();
-  await db.insert(projects).values({
-    id: projectId,
-    ownerId: user.id,
-    name,
-    description,
-    status: "discovery",
-  });
-
-  // Create discovery session
-  const sessionId = crypto.randomUUID();
-  await db.insert(discoverySessions).values({
-    id: sessionId,
-    projectId,
-    userId: user.id,
-    status: "in_progress",
-    currentStep: 0,
-    totalSteps: 12,
-  });
-
-  return Response.json({ projectId, sessionId }, { status: 201 });
 }
 
 export async function GET(request: Request) {
