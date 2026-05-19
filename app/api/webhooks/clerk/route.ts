@@ -60,7 +60,7 @@ export async function POST(request: Request) {
     const db = getDB(env as { DB: D1Database });
 
     const { id, email_addresses, primary_email_address_id, first_name, last_name, image_url } =
-      event.data;
+      (event as UserCreatedEvent).data;
 
     const primaryEmail = email_addresses.find(
       (e) => e.id === primary_email_address_id
