@@ -2,7 +2,7 @@ import {
   sqliteTable,
   text,
   integer,
-  numeric,
+  real,
   index,
   uniqueIndex,
 } from "drizzle-orm/sqlite-core";
@@ -397,11 +397,11 @@ export const capTables = sqliteTable(
     }),
     shareholderName: text("shareholder_name").notNull(),
     role: text("role").notNull(),
-    equityPercentage: numeric("equity_percentage").notNull(),
+    equityPercentage: real("equity_percentage").notNull(),
     vestingStartDate: text("vesting_start_date"),
     vestingCliffMonths: integer("vesting_cliff_months"),
     vestingDurationMonths: integer("vesting_duration_months"),
-    sharesIssued: numeric("shares_issued"),
+    sharesIssued: real("shares_issued"),
     dilutionGroup: text("dilution_group"),
     notes: text("notes"),
     createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(
@@ -429,8 +429,8 @@ export const capTableSnapshots = sqliteTable("cap_table_snapshots", {
   }),
   label: text("label").notNull(),
   snapshotData: text("snapshot_data").notNull(),
-  totalShares: numeric("total_shares"),
-  valuation: numeric("valuation"),
+  totalShares: real("total_shares"),
+  valuation: real("valuation"),
   createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(
     () => new Date()
   ),
