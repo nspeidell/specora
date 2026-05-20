@@ -151,7 +151,7 @@ export async function POST(request: Request) {
     // Use tool use for guaranteed structured output — no JSON parsing errors
     const message = await anthropic.messages.create({
       model: "claude-sonnet-4-6",
-      max_tokens: 4096,
+      max_tokens: 2048,
       tools: [
         {
           name: "infer_architecture",

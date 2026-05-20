@@ -61,6 +61,13 @@ const LOADING_STEPS = [
   "Finalizing architecture blueprint…",
 ];
 
+const LAST_STEP_MESSAGES = [
+  "Finalizing architecture blueprint…",
+  "Claude is still thinking — almost there…",
+  "Wrapping up the recommendation…",
+  "Just a moment longer…",
+];
+
 function parseJSON<T>(val: string | null, fallback: T): T {
   if (!val) return fallback;
   try {
@@ -105,6 +112,7 @@ export default function InferPage({
 
   const [status, setStatus] = useState<"loading" | "done" | "error">("loading");
   const [loadingStep, setLoadingStep] = useState(0);
+  const [lastStepIdx, setLastStepIdx] = useState(0);
   const [recommendation, setRecommendation] = useState<Recommendation | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
@@ -113,9 +121,18 @@ export default function InferPage({
     if (status !== "loading") return;
     const interval = setInterval(() => {
       setLoadingStep((s) => Math.min(s + 1, LOADING_STEPS.length - 1));
-    }, 2000);
+    }, 2500);
     return () => clearInterval(interval);
   }, [status]);
+
+  // When stuck on the last step, cycle through "still working" messages
+  useEffect(() => {
+    if (status !== "loading" || loadingStep < LOADING_STEPS.length - 1) return;
+    const interval = setInterval(() => {
+      setLastStepIdx((i) => (i + 1) % LAST_STEP_MESSAGES.length);
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [status, loadingStep]);
 
   useEffect(() => {
     let cancelled = false;
@@ -171,29 +188,41 @@ export default function InferPage({
             Claude is designing the technical architecture for your product.
           </p>
           <div className="space-y-2 text-left bg-muted/30 border border-border rounded-lg p-4">
-            {LOADING_STEPS.map((step, i) => (
-              <div key={step} className="flex items-center gap-2.5 text-sm">
-                {i < loadingStep ? (
-                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                ) : i === loadingStep ? (
-                  <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin shrink-0" />
-                ) : (
-                  <div className="w-4 h-4 rounded-full border border-border shrink-0" />
-                )}
-                <span
-                  className={
-                    i < loadingStep
-                      ? "text-muted-foreground line-through"
-                      : i === loadingStep
-                      ? "text-foreground"
-                      : "text-muted-foreground/40"
-                  }
-                >
-                  {step}
-                </span>
-              </div>
-            ))}
+            {LOADING_STEPS.map((step, i) => {
+              const isLast = i === LOADING_STEPS.length - 1;
+              const isActive = i === loadingStep;
+              const displayLabel = isLast && isActive
+                ? LAST_STEP_MESSAGES[lastStepIdx]
+                : step;
+              return (
+                <div key={step} className="flex items-center gap-2.5 text-sm">
+                  {i < loadingStep ? (
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                  ) : isActive ? (
+                    <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin shrink-0" />
+                  ) : (
+                    <div className="w-4 h-4 rounded-full border border-border shrink-0" />
+                  )}
+                  <span
+                    className={
+                      i < loadingStep
+                        ? "text-muted-foreground line-through"
+                        : isActive
+                        ? "text-foreground"
+                        : "text-muted-foreground/40"
+                    }
+                  >
+                    {displayLabel}
+                  </span>
+                </div>
+              );
+            })}
           </div>
+          {loadingStep === LOADING_STEPS.length - 1 && (
+            <p className="mt-4 text-xs text-muted-foreground/50">
+              This can take up to 30 seconds — please don't close the tab.
+            </p>
+          )}
         </div>
       </div>
     );
