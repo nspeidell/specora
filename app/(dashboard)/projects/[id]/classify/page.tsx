@@ -52,6 +52,45 @@ const COMPLEXITY_COLORS: Record<number, string> = {
   5: "text-rose-400",
 };
 
+const PRODUCT_TYPE_LABELS: Record<string, string> = {
+  marketing_website: "Marketing Website",
+  saas_application: "SaaS Application",
+  crm_internal_tool: "CRM / Internal Tool",
+  ai_tool_agent: "AI Tool / Agent System",
+  marketplace: "Marketplace",
+  mobile_app: "Mobile App",
+  automation_workflow: "Automation Workflow",
+  seo_content_engine: "SEO / Content Engine",
+  data_platform: "Data Platform",
+  hybrid_system: "Hybrid System",
+};
+
+const DOMAIN_LABELS: Record<string, string> = {
+  sales_crm: "Sales / CRM",
+  operations: "Operations",
+  marketing_seo: "Marketing / SEO",
+  finance_billing: "Finance & Billing",
+  ai_automation: "AI Automation",
+  content_generation: "Content Generation",
+  workflow_management: "Workflow Management",
+  analytics_dashboards: "Analytics & Dashboards",
+  customer_onboarding: "Customer Onboarding",
+  developer_tooling: "Developer Tooling",
+  healthcare: "Healthcare",
+  education: "Education",
+  ecommerce: "E-commerce",
+  social_community: "Social / Community",
+  other: "Other",
+};
+
+const EXECUTION_LABELS: Record<string, string> = {
+  real_time_interactive: "Real-time interactive",
+  async_background: "Async background processing",
+  batch_scheduled: "Batch / scheduled",
+  event_driven: "Event-driven",
+  hybrid: "Hybrid",
+};
+
 const COMPLEXITY_BG: Record<number, string> = {
   1: "bg-emerald-400/10 border-emerald-400/20",
   2: "bg-sky-400/10 border-sky-400/20",
@@ -263,7 +302,7 @@ export default function ClassifyPage({
                 </span>
               </div>
               <p className="text-sm font-medium text-foreground">
-                {classification.productTypeLabel ?? classification.productType}
+                {classification.productTypeLabel ?? PRODUCT_TYPE_LABELS[classification.productType] ?? classification.productType}
               </p>
             </div>
 
@@ -275,7 +314,7 @@ export default function ClassifyPage({
                 </span>
               </div>
               <p className="text-sm font-medium text-foreground">
-                {classification.functionalDomainLabel ?? classification.functionalDomain}
+                {classification.functionalDomainLabel ?? DOMAIN_LABELS[classification.functionalDomain] ?? classification.functionalDomain}
               </p>
             </div>
 
@@ -287,7 +326,7 @@ export default function ClassifyPage({
                 </span>
               </div>
               <p className="text-sm font-medium text-foreground">
-                {classification.executionStyleLabel ?? classification.executionStyle}
+                {classification.executionStyleLabel ?? EXECUTION_LABELS[classification.executionStyle] ?? classification.executionStyle}
               </p>
             </div>
 
