@@ -117,32 +117,52 @@ export async function POST(request: Request) {
       responses
     );
 
+    // Use tool use for guaranteed structured output — no JSON parsing errors
     const message = await anthropic.messages.create({
       model: "claude-sonnet-4-6",
-      max_tokens: 1024,
+      max_tokens: 2048,
+      tools: [
+        {
+          name: "classify_project",
+          description: "Classify a software project across product type, complexity, domain, and execution style.",
+          input_schema: {
+            type: "object" as const,
+            properties: {
+              productType: { type: "string", enum: ["marketing_website","saas_application","crm_internal_tool","ai_tool_agent","marketplace","mobile_app","automation_workflow","seo_content_engine","data_platform","hybrid_system"] },
+              productTypeLabel: { type: "string" },
+              complexityLevel: { type: "integer", minimum: 1, maximum: 5 },
+              complexityLabel: { type: "string" },
+              functionalDomain: { type: "string", enum: ["sales_crm","operations","marketing_seo","finance_billing","ai_automation","content_generation","workflow_management","analytics_dashboards","customer_onboarding","developer_tooling","healthcare","education","ecommerce","social_community","other"] },
+              functionalDomainLabel: { type: "string" },
+              executionStyle: { type: "string", enum: ["real_time_interactive","async_background","batch_scheduled","event_driven","hybrid"] },
+              executionStyleLabel: { type: "string" },
+              targetUsers: { type: "string" },
+              coreSystemSummary: { type: "string" },
+              requiresAiLayer: { type: "boolean" },
+              requiresMultiTenancy: { type: "boolean" },
+              requiresMarketplace: { type: "boolean" },
+              confidenceScore: { type: "integer", minimum: 0, maximum: 100 },
+              classificationRationale: { type: "string" },
+              phaseTemplate: { type: "array", items: { type: "string" } },
+            },
+            required: ["productType","productTypeLabel","complexityLevel","complexityLabel","functionalDomain","functionalDomainLabel","executionStyle","executionStyleLabel","targetUsers","coreSystemSummary","requiresAiLayer","requiresMultiTenancy","requiresMarketplace","confidenceScore","classificationRationale","phaseTemplate"],
+          },
+        },
+      ],
+      tool_choice: { type: "tool" as const, name: "classify_project" },
       messages: [{ role: "user", content: prompt }],
     });
 
-    const rawText = message.content[0].type === "text" ? message.content[0].text : "";
-
-    // Extract JSON object robustly — handles markdown fences and preamble text
-    const jsonMatch = rawText.match(/\{[\s\S]*\}/);
-    const jsonText = jsonMatch ? jsonMatch[0] : "";
-
-    let classificationData: unknown;
-    try {
-      if (!jsonText) throw new Error("No JSON object found in response");
-      classificationData = JSON.parse(jsonText);
-    } catch {
-      console.error("Claude returned non-JSON:", rawText);
-      return Response.json({ error: "AI returned invalid JSON", raw: rawText }, { status: 502 });
+    const toolBlock = message.content.find((b) => b.type === "tool_use");
+    if (!toolBlock || toolBlock.type !== "tool_use") {
+      return Response.json({ error: "AI did not return a tool result" }, { status: 502 });
     }
 
-    const validated = ClassificationResultSchema.safeParse(classificationData);
+    const validated = ClassificationResultSchema.safeParse(toolBlock.input);
     if (!validated.success) {
       console.error("Classification schema mismatch:", validated.error.issues);
       return Response.json(
-        { error: "AI response did not match expected schema", issues: validated.error.issues, raw: classificationData },
+        { error: "AI response did not match expected schema", issues: validated.error.issues },
         { status: 502 }
       );
     }

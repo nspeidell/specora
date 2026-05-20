@@ -148,40 +148,71 @@ export async function POST(request: Request) {
       responses
     );
 
+    // Use tool use for guaranteed structured output — no JSON parsing errors
     const message = await anthropic.messages.create({
       model: "claude-sonnet-4-6",
       max_tokens: 4096,
+      tools: [
+        {
+          name: "infer_architecture",
+          description: "Infer the optimal technical architecture for a software product based on its classification and discovery responses.",
+          input_schema: {
+            type: "object" as const,
+            properties: {
+              recommendedStack: {
+                type: "object",
+                properties: {
+                  frontend: { type: "string" },
+                  backend: { type: "string" },
+                  database: { type: "string" },
+                  auth: { type: "string" },
+                  hosting: { type: "string" },
+                  additional: { type: "array", items: { type: "string" } },
+                },
+                required: ["frontend","backend","database","auth","hosting","additional"],
+              },
+              authStrategy: { type: "string" },
+              databaseDesign: { type: "string" },
+              infrastructure: {
+                type: "object",
+                properties: {
+                  hosting: { type: "string" },
+                  cdn: { type: "string" },
+                  storage: { type: "string" },
+                  backgroundJobs: { type: "string" },
+                  aiGateway: { type: "string" },
+                },
+                required: ["hosting","cdn","storage","backgroundJobs"],
+              },
+              recommendedApis: { type: "array", items: { type: "string" } },
+              recommendedIntegrations: { type: "array", items: { type: "string" } },
+              scalingConsiderations: { type: "string" },
+              complexityScore: { type: "integer", minimum: 1, maximum: 10 },
+              complexityRationale: { type: "string" },
+              estimatedBuildWeeks: { type: "integer", minimum: 1 },
+              keyRisks: { type: "array", items: { type: "string" } },
+              aiLayerDesign: { type: "string" },
+              multiTenancyDesign: { type: "string" },
+              marketplaceDesign: { type: "string" },
+            },
+            required: ["recommendedStack","authStrategy","databaseDesign","infrastructure","recommendedApis","recommendedIntegrations","scalingConsiderations","complexityScore","complexityRationale","estimatedBuildWeeks","keyRisks"],
+          },
+        },
+      ],
+      tool_choice: { type: "tool" as const, name: "infer_architecture" },
       messages: [{ role: "user", content: prompt }],
     });
 
-    const rawText =
-      message.content[0].type === "text" ? message.content[0].text : "";
-
-    // Extract JSON object robustly — handles markdown fences and preamble text
-    const jsonMatch = rawText.match(/\{[\s\S]*\}/);
-    const jsonText = jsonMatch ? jsonMatch[0] : "";
-
-    let inferenceData: unknown;
-    try {
-      if (!jsonText) throw new Error("No JSON object found in response");
-      inferenceData = JSON.parse(jsonText);
-    } catch {
-      console.error("Claude returned non-JSON:", rawText);
-      return Response.json(
-        { error: "AI returned invalid JSON", raw: rawText },
-        { status: 502 }
-      );
+    const toolBlock = message.content.find((b) => b.type === "tool_use");
+    if (!toolBlock || toolBlock.type !== "tool_use") {
+      return Response.json({ error: "AI did not return a tool result" }, { status: 502 });
     }
 
-    const validated = InferenceResultSchema.safeParse(inferenceData);
+    const validated = InferenceResultSchema.safeParse(toolBlock.input);
     if (!validated.success) {
       console.error("Inference schema mismatch:", validated.error.issues);
       return Response.json(
-        {
-          error: "AI response did not match expected schema",
-          issues: validated.error.issues,
-          raw: inferenceData,
-        },
+        { error: "AI response did not match expected schema", issues: validated.error.issues },
         { status: 502 }
       );
     }

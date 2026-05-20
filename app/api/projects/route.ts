@@ -1,4 +1,5 @@
 import { auth, currentUser } from "@clerk/nextjs/server";
+import { TOTAL_STEPS } from "@/lib/discovery/questions";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { eq } from "drizzle-orm";
 import { getDB } from "@/lib/db/client";
@@ -104,7 +105,7 @@ export async function POST(request: Request) {
       userId: user.id,
       status: "in_progress",
       currentStep: 0,
-      totalSteps: 12,
+      totalSteps: TOTAL_STEPS,
     });
 
     return Response.json({ projectId, sessionId }, { status: 201 });

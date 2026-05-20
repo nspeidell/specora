@@ -321,10 +321,127 @@ export const DISCOVERY_QUESTIONS: DiscoveryQuestion[] = [
     classificationSignals: ["complexityLevel", "functionalDomain"],
   },
 
+  // ── UI / UX ──────────────────────────────────────────────────
+  {
+    key: "primary_platform",
+    step: 12,
+    category: "UI / UX",
+    question: "What device or platform is this primarily designed for?",
+    subtext: "This shapes navigation patterns, layout density, and mobile considerations.",
+    type: "select",
+    options: [
+      {
+        label: "Web browser — desktop first",
+        value: "web_desktop",
+        hint: "Dashboard, SaaS tools, internal apps",
+      },
+      {
+        label: "Web browser — mobile first",
+        value: "web_mobile",
+        hint: "Consumer apps, marketplaces, services",
+      },
+      {
+        label: "Web browser — works well on both",
+        value: "web_responsive",
+        hint: "Fully responsive, no dominant device",
+      },
+      {
+        label: "Native mobile app (iOS / Android)",
+        value: "native_mobile",
+        hint: "Requires React Native or similar",
+      },
+      {
+        label: "Not sure yet",
+        value: "unsure",
+      },
+    ],
+    required: true,
+    classificationSignals: ["productType", "complexityLevel"],
+  },
+  {
+    key: "visual_style",
+    step: 13,
+    category: "UI / UX",
+    question: "What's the visual style and feel you're aiming for?",
+    subtext: "This informs design system choices and component complexity in the spec.",
+    type: "select",
+    options: [
+      {
+        label: "Clean and minimal — lots of whitespace, simple layouts",
+        value: "minimal",
+        hint: "e.g. Linear, Notion, Stripe",
+      },
+      {
+        label: "Data-dense — tables, charts, dashboards, lots on screen",
+        value: "data_dense",
+        hint: "e.g. analytics tools, CRMs, admin panels",
+      },
+      {
+        label: "Media-rich — images, video, visual browsing",
+        value: "media_rich",
+        hint: "e.g. marketplaces, portfolios, content platforms",
+      },
+      {
+        label: "Consumer / friendly — approachable, colorful, fun",
+        value: "consumer",
+        hint: "e.g. Duolingo, Airbnb, social apps",
+      },
+      {
+        label: "Enterprise / formal — professional, structured",
+        value: "enterprise",
+        hint: "e.g. ERP, HR tools, compliance software",
+      },
+    ],
+    required: true,
+    classificationSignals: ["productType", "functionalDomain"],
+  },
+  {
+    key: "ui_pattern",
+    step: 14,
+    category: "UI / UX",
+    question: "What's the core UI pattern users spend most of their time in?",
+    subtext: "Pick the one that best describes the primary user experience.",
+    type: "select",
+    options: [
+      {
+        label: "Dashboard — overview metrics and navigation hub",
+        value: "dashboard",
+        hint: "Home base with widgets and KPIs",
+      },
+      {
+        label: "List + detail — browse items, click into detail view",
+        value: "list_detail",
+        hint: "e.g. inbox, CRM contacts, product catalog",
+      },
+      {
+        label: "Wizard / guided flow — step-by-step process",
+        value: "wizard",
+        hint: "e.g. onboarding, setup, checkout",
+      },
+      {
+        label: "Canvas / editor — users create or edit content",
+        value: "canvas_editor",
+        hint: "e.g. doc editor, design tool, form builder",
+      },
+      {
+        label: "Feed / browse — scrollable content stream",
+        value: "feed",
+        hint: "e.g. social feed, marketplace listings, blog",
+      },
+      {
+        label: "Search-first — users find things via search",
+        value: "search",
+        hint: "e.g. job board, directory, knowledge base",
+      },
+    ],
+    required: true,
+    classificationSignals: ["productType", "executionStyle"],
+  },
+
   // ── FINAL CONTEXT ────────────────────────────────────────────
   {
     key: "special_requirements",
-    step: 12,
+    step: 15,
     category: "Final context",
     question:
       "Anything else important we should know about this product?",
