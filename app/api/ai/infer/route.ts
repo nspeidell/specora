@@ -150,19 +150,20 @@ export async function POST(request: Request) {
 
     const message = await anthropic.messages.create({
       model: "claude-sonnet-4-6",
-      max_tokens: 2048,
+      max_tokens: 4096,
       messages: [{ role: "user", content: prompt }],
     });
 
     const rawText =
       message.content[0].type === "text" ? message.content[0].text : "";
-    const jsonText = rawText
-      .replace(/^```(?:json)?\s*/i, "")
-      .replace(/\s*```$/i, "")
-      .trim();
+
+    // Extract JSON object robustly — handles markdown fences and preamble text
+    const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+    const jsonText = jsonMatch ? jsonMatch[0] : "";
 
     let inferenceData: unknown;
     try {
+      if (!jsonText) throw new Error("No JSON object found in response");
       inferenceData = JSON.parse(jsonText);
     } catch {
       console.error("Claude returned non-JSON:", rawText);

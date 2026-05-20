@@ -125,11 +125,13 @@ export async function POST(request: Request) {
 
     const rawText = message.content[0].type === "text" ? message.content[0].text : "";
 
-    // Strip markdown fences if Claude wrapped the JSON
-    const jsonText = rawText.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+    // Extract JSON object robustly — handles markdown fences and preamble text
+    const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+    const jsonText = jsonMatch ? jsonMatch[0] : "";
 
     let classificationData: unknown;
     try {
+      if (!jsonText) throw new Error("No JSON object found in response");
       classificationData = JSON.parse(jsonText);
     } catch {
       console.error("Claude returned non-JSON:", rawText);
