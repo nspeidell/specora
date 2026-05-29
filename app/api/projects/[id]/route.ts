@@ -50,7 +50,7 @@ export async function GET(
     const [sessionRows, classificationRows, archRows, specRows] =
       await Promise.all([
         db
-          .select({ id: discoverySessions.id, status: discoverySessions.status, currentStep: discoverySessions.currentStep, totalSteps: discoverySessions.totalSteps })
+          .select({ id: discoverySessions.id, status: discoverySessions.status, currentStep: discoverySessions.currentStep, totalSteps: discoverySessions.totalSteps, discoveryLinkId: discoverySessions.discoveryLinkId })
           .from(discoverySessions)
           .where(eq(discoverySessions.projectId, projectId))
           .limit(1),

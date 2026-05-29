@@ -125,7 +125,10 @@ export const projects = sqliteTable(
     industry: text("industry"),
     businessModel: text("business_model"),
     status: text("status").default("draft"),
-    // 'draft' | 'discovery' | 'classified' | 'inferring' | 'generating' | 'complete' | 'archived'
+    // 'draft' | 'discovery' | 'analyzing' | 'analyzed' | 'classified' | 'inferring' | 'complete' | 'archived'
+    intelligenceStatus: text("intelligence_status").default("pending"),
+    // 'pending' | 'analyzing' | 'complete' | 'failed'
+    intelligenceResult: text("intelligence_result"), // JSON string — IntelligenceResult
     technicalComplexity: text("technical_complexity"),
     createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(
       () => new Date()

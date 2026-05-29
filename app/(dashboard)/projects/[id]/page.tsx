@@ -23,17 +23,26 @@ import {
   BarChart3,
   Plug,
   RefreshCw,
+  Brain,
+  Loader2,
+  CheckCircle2,
+  XCircle,
+  SplitSquareHorizontal,
+  ListChecks,
 } from "lucide-react";
+import type { IntelligenceResult } from "@/lib/ai/prompts/intelligence";
 
 // ─── Status config ─────────────────────────────────────────────
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; next?: string; nextLabel?: string; nextHref?: (id: string) => string }> = {
-  draft:      { label: "Draft",       color: "bg-muted text-muted-foreground border-border" },
-  discovery:  { label: "In discovery", color: "bg-blue-500/10 text-blue-400 border-blue-500/20",  next: "discovery",  nextLabel: "Continue discovery",  nextHref: (id) => `/projects/${id}/discover` },
-  classified: { label: "Classified",  color: "bg-violet-500/10 text-violet-400 border-violet-500/20", next: "infer", nextLabel: "View architecture",  nextHref: (id) => `/projects/${id}/infer` },
+  draft:      { label: "Draft",            color: "bg-muted text-muted-foreground border-border" },
+  discovery:  { label: "In discovery",     color: "bg-blue-500/10 text-blue-400 border-blue-500/20", next: "discovery", nextLabel: "Continue discovery", nextHref: (id) => `/projects/${id}/discover` },
+  analyzing:  { label: "Analyzing",        color: "bg-violet-500/10 text-violet-400 border-violet-500/20" },
+  analyzed:   { label: "Analysis ready",   color: "bg-violet-500/10 text-violet-400 border-violet-500/20", next: "classify", nextLabel: "Classify intent", nextHref: (id) => `/projects/${id}/classify` },
+  classified: { label: "Classified",       color: "bg-amber-500/10 text-amber-400 border-amber-500/20", next: "infer", nextLabel: "Infer architecture", nextHref: (id) => `/projects/${id}/infer` },
   inferring:  { label: "Architecture ready", color: "bg-amber-500/10 text-amber-400 border-amber-500/20", next: "generate", nextLabel: "Generate spec", nextHref: (id) => `/projects/${id}/generate` },
-  complete:   { label: "Complete",    color: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" },
-  archived:   { label: "Archived",    color: "bg-muted text-muted-foreground border-border" },
+  complete:   { label: "Complete",         color: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" },
+  archived:   { label: "Archived",         color: "bg-muted text-muted-foreground border-border" },
 };
 
 // ─── Types ─────────────────────────────────────────────────────
@@ -42,8 +51,10 @@ type ProjectData = {
   project: {
     id: string; name: string; description: string | null;
     status: string | null; createdAt: number | null;
+    intelligenceStatus: string | null; intelligenceResult: string | null;
+    clientName: string | null; clientEmail: string | null;
   };
-  session: { id: string; currentStep: number | null; totalSteps: number | null } | null;
+  session: { id: string; status: string | null; currentStep: number | null; totalSteps: number | null } | null;
   classification: {
     productType: string; complexityLevel: number; complexityLabel: string;
     functionalDomain: string; executionStyle: string;
@@ -186,6 +197,28 @@ export default function ProjectDetailPage({
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<ProjectData | null>(null);
   const [activeTab, setActiveTab] = useState<TabId>("tech");
+  const [analyzing, setAnalyzing] = useState(false);
+  const [analyzeError, setAnalyzeError] = useState<string | null>(null);
+
+  async function runIntelligence() {
+    setAnalyzing(true);
+    setAnalyzeError(null);
+    try {
+      const res = await fetch(`/api/projects/${id}/intelligence`, { method: "POST" });
+      const body = await res.json() as { ok?: boolean; result?: IntelligenceResult; error?: string };
+      if (!res.ok) {
+        setAnalyzeError(body.error ?? "Analysis failed. Please try again.");
+        return;
+      }
+      // Reload project data to get updated status + result
+      const updated = await fetch(`/api/projects/${id}`).then((r) => r.json()) as ProjectData;
+      setData(updated);
+    } catch {
+      setAnalyzeError("Network error. Please try again.");
+    } finally {
+      setAnalyzing(false);
+    }
+  }
 
   useEffect(() => {
     fetch(`/api/projects/${id}`)
@@ -290,10 +323,11 @@ export default function ProjectDetailPage({
       <div className="border border-border rounded-xl bg-muted/10 p-4 mb-6">
         <div className="flex items-center gap-0">
           {[
-            { key: "discovery", label: "Discovery", done: !!session },
+            { key: "discovery", label: "Discovery", done: !!session && session.status === "completed" || ["analyzing","analyzed","classified","inferring","complete"].includes(status) },
+            { key: "analysis", label: "Analysis",  done: project.intelligenceStatus === "complete" },
             { key: "classify", label: "Blueprint", done: !!classification },
-            { key: "infer", label: "Architecture", done: !!architecture },
-            { key: "generate", label: "Spec", done: status === "complete" },
+            { key: "infer",    label: "Architecture", done: !!architecture },
+            { key: "generate", label: "Spec",      done: status === "complete" },
           ].map(({ label, done }, i, arr) => (
             <div key={label} className="flex items-center flex-1 min-w-0">
               <div className="flex flex-col items-center gap-1 flex-1">
@@ -368,13 +402,246 @@ export default function ProjectDetailPage({
           </div>
         )}
 
-        {/* ── CTA when not complete ── */}
-        {status !== "complete" && statusCfg.next && statusCfg.nextHref && (
+        {/* ── Analyze CTA — shown when discovery is done but analysis hasn't run ── */}
+        {status === "discovery" && session?.status === "completed" && project.intelligenceStatus === "pending" && (
+          <div className="border border-violet-500/25 rounded-xl bg-violet-500/5 p-5 flex items-center justify-between gap-4">
+            <div>
+              <p className="text-sm font-medium text-foreground mb-0.5 flex items-center gap-2">
+                <Brain className="w-4 h-4 text-violet-400" />
+                Discovery complete — ready for analysis
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Run the intelligence pass to detect contradictions, infer missing requirements, and define MVP scope before generating the spec.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={runIntelligence}
+              disabled={analyzing}
+              className="shrink-0 flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium gradient-brand text-white hover:opacity-90 transition-opacity disabled:opacity-50"
+            >
+              {analyzing ? <><Loader2 className="w-4 h-4 animate-spin" /> Analyzing…</> : <><Brain className="w-4 h-4" /> Analyze</>}
+            </button>
+          </div>
+        )}
+
+        {/* Analyzing in progress indicator */}
+        {(status === "analyzing" || analyzing) && (
+          <div className="border border-violet-500/20 rounded-xl bg-violet-500/5 p-5 flex items-center gap-3">
+            <Loader2 className="w-5 h-5 text-violet-400 animate-spin shrink-0" />
+            <div>
+              <p className="text-sm font-medium text-foreground">Running intelligence analysis…</p>
+              <p className="text-xs text-muted-foreground mt-0.5">Detecting contradictions, inferring requirements, defining MVP scope. This takes ~20 seconds.</p>
+            </div>
+          </div>
+        )}
+
+        {analyzeError && (
+          <div className="border border-destructive/20 rounded-xl bg-destructive/5 p-4 text-sm text-destructive flex items-center gap-2">
+            <XCircle className="w-4 h-4 shrink-0" /> {analyzeError}
+          </div>
+        )}
+
+        {/* ── Intelligence Results Panel ── */}
+        {project.intelligenceResult && (() => {
+          const intel = parseJSON<IntelligenceResult | null>(project.intelligenceResult, null);
+          if (!intel) return null;
+
+          const severityColor = (s: string) => ({
+            critical: "text-red-400 bg-red-500/10 border-red-500/20",
+            high: "text-orange-400 bg-orange-500/10 border-orange-500/20",
+            medium: "text-yellow-400 bg-yellow-500/10 border-yellow-500/20",
+            low: "text-blue-400 bg-blue-500/10 border-blue-500/20",
+          }[s] ?? "text-muted-foreground bg-muted border-border");
+
+          return (
+            <div className="border border-violet-500/20 rounded-xl overflow-hidden">
+              {/* Header */}
+              <div className="px-5 py-3 border-b border-border flex items-center justify-between bg-violet-500/5">
+                <div className="flex items-center gap-2">
+                  <Brain className="w-4 h-4 text-violet-400" />
+                  <span className="text-sm font-medium text-foreground">Intelligence Analysis</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="text-xs text-muted-foreground">Scope risk:</span>
+                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${
+                    intel.scopeRiskScore >= 8 ? "text-red-400 bg-red-500/10 border-red-500/20"
+                    : intel.scopeRiskScore >= 5 ? "text-yellow-400 bg-yellow-500/10 border-yellow-500/20"
+                    : "text-emerald-400 bg-emerald-500/10 border-emerald-500/20"
+                  }`}>
+                    {intel.scopeRiskScore}/10
+                  </span>
+                </div>
+              </div>
+
+              <div className="p-5 space-y-6">
+                {/* Complexity assessment */}
+                <div>
+                  <p className="text-xs text-muted-foreground uppercase tracking-wide mb-2 font-semibold">Assessment</p>
+                  <p className="text-sm text-foreground leading-relaxed">{intel.overallComplexityAssessment}</p>
+                </div>
+
+                {/* Feasibility flags */}
+                {intel.feasibilityFlags.length > 0 && (
+                  <div>
+                    <p className="text-xs text-muted-foreground uppercase tracking-wide mb-2 font-semibold flex items-center gap-1.5">
+                      <AlertTriangle className="w-3.5 h-3.5" /> Feasibility flags
+                    </p>
+                    <div className="space-y-2">
+                      {intel.feasibilityFlags.map((f, i) => (
+                        <div key={i} className={`rounded-lg border px-4 py-3 ${severityColor(f.severity)}`}>
+                          <div className="flex items-center justify-between gap-2 mb-1">
+                            <span className="text-xs font-semibold uppercase tracking-wide">{f.severity}</span>
+                            <span className="text-xs font-medium">{f.concern}</span>
+                          </div>
+                          <p className="text-xs opacity-80 leading-relaxed">{f.description}</p>
+                          <p className="text-xs mt-1.5 font-medium">→ {f.recommendation}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Contradictions */}
+                {intel.contradictions.length > 0 && (
+                  <div>
+                    <p className="text-xs text-muted-foreground uppercase tracking-wide mb-2 font-semibold flex items-center gap-1.5">
+                      <XCircle className="w-3.5 h-3.5" /> Contradictions
+                    </p>
+                    <div className="space-y-2">
+                      {intel.contradictions.map((c, i) => (
+                        <div key={i} className={`rounded-lg border px-4 py-3 ${severityColor(c.severity)}`}>
+                          <p className="text-xs leading-relaxed mb-1.5">{c.description}</p>
+                          <p className="text-xs font-medium">→ {c.recommendation}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* MVP vs Future Scope */}
+                <div className="grid sm:grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-xs text-muted-foreground uppercase tracking-wide mb-2 font-semibold flex items-center gap-1.5">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" /> MVP scope
+                    </p>
+                    <div className="space-y-1.5">
+                      {intel.mvpScope.map((item, i) => (
+                        <div key={i} className="rounded-lg bg-emerald-500/5 border border-emerald-500/15 px-3 py-2">
+                          <p className="text-xs font-medium text-emerald-400">{item.feature}</p>
+                          <p className="text-xs text-muted-foreground mt-0.5">{item.rationale}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground uppercase tracking-wide mb-2 font-semibold flex items-center gap-1.5">
+                      <SplitSquareHorizontal className="w-3.5 h-3.5 text-muted-foreground" /> Future scope
+                    </p>
+                    <div className="space-y-1.5">
+                      {intel.futureScope.map((item, i) => (
+                        <div key={i} className="rounded-lg bg-muted/30 border border-border px-3 py-2">
+                          <p className="text-xs font-medium text-muted-foreground">{item.feature}</p>
+                          <p className="text-xs text-muted-foreground/60 mt-0.5">{item.rationale}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Architecture signals */}
+                {intel.architectureSignals.length > 0 && (
+                  <div>
+                    <p className="text-xs text-muted-foreground uppercase tracking-wide mb-2 font-semibold flex items-center gap-1.5">
+                      <Server className="w-3.5 h-3.5" /> Architecture signals
+                    </p>
+                    <div className="space-y-1">
+                      {intel.architectureSignals.map((sig, i) => (
+                        <div key={i} className="flex items-start gap-2 text-xs text-muted-foreground">
+                          <span className="text-violet-400 mt-0.5 shrink-0">→</span>
+                          {sig}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Inferred requirements */}
+                {intel.inferredRequirements.length > 0 && (
+                  <div>
+                    <p className="text-xs text-muted-foreground uppercase tracking-wide mb-2 font-semibold flex items-center gap-1.5">
+                      <ListChecks className="w-3.5 h-3.5" /> Inferred requirements
+                    </p>
+                    <div className="space-y-2">
+                      {intel.inferredRequirements.map((r, i) => (
+                        <div key={i} className="rounded-lg bg-muted/20 border border-border px-3 py-2.5">
+                          <p className="text-xs font-medium text-foreground">{r.requirement}</p>
+                          <p className="text-xs text-muted-foreground mt-1">{r.architectureImpact}</p>
+                          <div className="flex items-center gap-2 mt-1.5">
+                            <div className="flex-1 h-1 bg-border rounded-full overflow-hidden">
+                              <div className="h-full bg-violet-400 rounded-full" style={{ width: `${r.confidence * 100}%` }} />
+                            </div>
+                            <span className="text-xs text-muted-foreground/60">{Math.round(r.confidence * 100)}%</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Key risks */}
+                {intel.keyRisks.length > 0 && (
+                  <div>
+                    <p className="text-xs text-muted-foreground uppercase tracking-wide mb-2 font-semibold">Key risks</p>
+                    <div className="space-y-1">
+                      {intel.keyRisks.map((r, i) => (
+                        <div key={i} className="flex items-start gap-2 text-xs text-muted-foreground">
+                          <span className="text-orange-400 mt-0.5 shrink-0">⚠</span>
+                          {r}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Clarifications */}
+                {intel.recommendedClarifications.length > 0 && (
+                  <div>
+                    <p className="text-xs text-muted-foreground uppercase tracking-wide mb-2 font-semibold">Recommended clarifications</p>
+                    <div className="space-y-1">
+                      {intel.recommendedClarifications.map((q, i) => (
+                        <div key={i} className="flex items-start gap-2 text-xs text-muted-foreground">
+                          <span className="text-primary mt-0.5 shrink-0">?</span>
+                          {q}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Proceed CTA */}
+                {status === "analyzed" && (
+                  <div className="pt-2 border-t border-border flex items-center justify-between">
+                    <p className="text-xs text-muted-foreground">Review complete — proceed to classification</p>
+                    <Link
+                      href={`/projects/${id}/classify`}
+                      className="flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium gradient-brand text-white hover:opacity-90 transition-opacity"
+                    >
+                      Classify intent <ChevronRight className="w-4 h-4" />
+                    </Link>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* ── CTA when not complete (for statuses without inline panel) ── */}
+        {!["discovery", "analyzing", "analyzed"].includes(status) && status !== "complete" && statusCfg.next && statusCfg.nextHref && (
           <div className="border border-primary/20 rounded-xl bg-primary/5 p-5 flex items-center justify-between gap-4">
             <div>
               <p className="text-sm font-medium text-foreground mb-0.5">Ready to continue?</p>
               <p className="text-xs text-muted-foreground">
-                {status === "discovery" && `${session?.currentStep ?? 0} of ${session?.totalSteps ?? 22} questions answered`}
                 {status === "classified" && "Architecture inference is next"}
                 {status === "inferring" && "Your spec is ready to generate"}
               </p>
