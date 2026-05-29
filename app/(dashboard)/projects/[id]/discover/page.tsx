@@ -1,10 +1,9 @@
 "use client";
 
-import { useState, useCallback, use } from "react";
+import { useState, useCallback, use, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import {
-  DISCOVERY_QUESTIONS,
-  TOTAL_STEPS,
+  getVisibleQuestions,
   type DiscoveryQuestion,
 } from "@/lib/discovery/questions";
 import {
@@ -132,18 +131,28 @@ export default function DiscoverPage({
 }) {
   const { id } = use(params);
   const router = useRouter();
-  const [currentStep, setCurrentStep] = useState(1);
+  const [visibleIndex, setVisibleIndex] = useState(0);
   const [answers, setAnswers] = useState<Answers>({});
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
 
-  const question = DISCOVERY_QUESTIONS.find((q) => q.step === currentStep)!;
-  const currentAnswer = answers[question.key];
-  const progress = (currentStep - 1) / TOTAL_STEPS;
+  const visibleQuestions = useMemo(
+    () => getVisibleQuestions(answers),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [JSON.stringify(answers)]
+  );
+
+  const question = visibleQuestions[visibleIndex] ?? visibleQuestions[0];
+  const currentAnswer = answers[question?.key];
+  const progress = visibleQuestions.length
+    ? visibleIndex / visibleQuestions.length
+    : 0;
+  const isLast = visibleIndex === visibleQuestions.length - 1;
+  const currentStep = question?.step ?? 1;
 
   const hasAnswer = useCallback(() => {
-    if (!question.required) return true;
+    if (!question?.required) return true;
     const val = answers[question.key];
     if (Array.isArray(val)) return val.length > 0;
     return typeof val === "string" && val.trim().length > 0;
@@ -192,7 +201,7 @@ export default function DiscoverPage({
           router.push(`/projects/${id}/classify`);
         }, 2000);
       } else {
-        setCurrentStep((s) => s + 1);
+        setVisibleIndex((i) => i + 1);
       }
     } catch {
       setError("Network error. Please try again.");
@@ -202,7 +211,7 @@ export default function DiscoverPage({
   }
 
   function goBack() {
-    if (currentStep > 1) setCurrentStep((s) => s - 1);
+    if (visibleIndex > 0) setVisibleIndex((i) => i - 1);
   }
 
   if (done) {
@@ -245,7 +254,7 @@ export default function DiscoverPage({
               {question.category}
             </span>
             <span className="ml-auto text-xs text-muted-foreground">
-              {currentStep} / {TOTAL_STEPS}
+              {visibleIndex + 1} / {visibleQuestions.length}
             </span>
           </div>
 
@@ -273,7 +282,7 @@ export default function DiscoverPage({
           )}
 
           <div className="flex items-center gap-3">
-            {currentStep > 1 && (
+            {visibleIndex > 0 && (
               <button
                 type="button"
                 onClick={goBack}
@@ -296,7 +305,7 @@ export default function DiscoverPage({
                   <Loader2 className="w-4 h-4 animate-spin" />
                   Saving…
                 </>
-              ) : currentStep === TOTAL_STEPS ? (
+              ) : isLast ? (
                 <>
                   Finish discovery
                   <CheckCircle2 className="w-4 h-4" />

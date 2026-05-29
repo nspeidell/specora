@@ -49,6 +49,8 @@ export const users = sqliteTable(
 
 // ============================================================
 // ORGANIZATIONS
+// Agency/consultant workspaces. Only admins authenticate.
+// Clients are strictly guests — they never become members.
 // ============================================================
 export const organizations = sqliteTable("organizations", {
   id: text("id")
@@ -73,6 +75,7 @@ export const organizations = sqliteTable("organizations", {
 
 // ============================================================
 // ORGANIZATION MEMBERS
+// Admin-only. Clients never appear here.
 // ============================================================
 export const organizationMembers = sqliteTable(
   "organization_members",
@@ -87,7 +90,7 @@ export const organizationMembers = sqliteTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     role: text("role").default("member"),
-    // 'owner' | 'admin' | 'strategist' | 'developer' | 'client' | 'viewer'
+    // 'owner' | 'admin' | 'member'
     joinedAt: integer("joined_at", { mode: "timestamp" }).$defaultFn(
       () => new Date()
     ),
@@ -97,6 +100,8 @@ export const organizationMembers = sqliteTable(
 
 // ============================================================
 // PROJECTS
+// Owned by the admin (ownerId). Created lazily when a client
+// completes a discovery session via a discovery link.
 // ============================================================
 export const projects = sqliteTable(
   "projects",
@@ -111,8 +116,12 @@ export const projects = sqliteTable(
       () => organizations.id,
       { onDelete: "set null" }
     ),
+    // Source link — set when project is created from a client discovery session
+    discoveryLinkId: text("discovery_link_id"),
     name: text("name").notNull(),
     description: text("description"),
+    clientName: text("client_name"),
+    clientEmail: text("client_email"),
     industry: text("industry"),
     businessModel: text("business_model"),
     status: text("status").default("draft"),
@@ -129,7 +138,59 @@ export const projects = sqliteTable(
 );
 
 // ============================================================
+// DISCOVERY LINKS
+// Token-based entry points for client discovery sessions.
+// Admin creates a link → shares URL → client fills it out.
+// Client NEVER authenticates. Admin owns the project.
+// ============================================================
+export const discoveryLinks = sqliteTable(
+  "discovery_links",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    // Secure random token — used in /interview/[token]
+    token: text("token").notNull().unique(),
+    // Admin who created this link
+    createdByUserId: text("created_by_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    organizationId: text("organization_id").references(
+      () => organizations.id,
+      { onDelete: "set null" }
+    ),
+    // Set lazily when client completes the session
+    projectId: text("project_id").references(() => projects.id, {
+      onDelete: "set null",
+    }),
+    // Set when client starts the session
+    sessionId: text("session_id"),
+    // Admin-provided label for this engagement
+    projectName: text("project_name").notNull(),
+    // Optional client metadata (admin can pre-fill)
+    clientName: text("client_name"),
+    clientEmail: text("client_email"),
+    status: text("status").default("pending"),
+    // 'pending' | 'in_progress' | 'completed' | 'expired'
+    expiresAt: integer("expires_at", { mode: "timestamp" }),
+    createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(
+      () => new Date()
+    ),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).$defaultFn(
+      () => new Date()
+    ),
+  },
+  (t) => [
+    uniqueIndex("discovery_links_token_idx").on(t.token),
+    index("discovery_links_user_idx").on(t.createdByUserId),
+  ]
+);
+
+// ============================================================
 // DISCOVERY SESSIONS
+// One session per discovery link completion. projectId is set
+// lazily on the client's first answer (project created then).
+// userId = the admin who owns this project, NOT the client.
 // ============================================================
 export const discoverySessions = sqliteTable("discovery_sessions", {
   id: text("id")
@@ -138,9 +199,15 @@ export const discoverySessions = sqliteTable("discovery_sessions", {
   projectId: text("project_id")
     .notNull()
     .references(() => projects.id, { onDelete: "cascade" }),
+  // Admin owner — NOT the client
   userId: text("user_id")
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),
+  // Back-reference to the discovery link that created this session
+  discoveryLinkId: text("discovery_link_id").references(
+    () => discoveryLinks.id,
+    { onDelete: "set null" }
+  ),
   status: text("status").default("in_progress"),
   // 'in_progress' | 'completed' | 'abandoned'
   currentStep: integer("current_step").default(0),
@@ -341,7 +408,7 @@ export const specificationVersions = sqliteTable(
 
 // ============================================================
 // GENERATION LOGS
-// Real-time progress events for SSE streaming
+// Real-time progress events
 // ============================================================
 export const generationLogs = sqliteTable(
   "generation_logs",
@@ -380,64 +447,8 @@ export const promptVersions = sqliteTable("prompt_versions", {
 });
 
 // ============================================================
-// CAP TABLES
-// ============================================================
-export const capTables = sqliteTable(
-  "cap_tables",
-  {
-    id: text("id")
-      .primaryKey()
-      .$defaultFn(() => crypto.randomUUID()),
-    organizationId: text("organization_id").references(
-      () => organizations.id,
-      { onDelete: "cascade" }
-    ),
-    projectId: text("project_id").references(() => projects.id, {
-      onDelete: "cascade",
-    }),
-    shareholderName: text("shareholder_name").notNull(),
-    role: text("role").notNull(),
-    equityPercentage: real("equity_percentage").notNull(),
-    vestingStartDate: text("vesting_start_date"),
-    vestingCliffMonths: integer("vesting_cliff_months"),
-    vestingDurationMonths: integer("vesting_duration_months"),
-    sharesIssued: real("shares_issued"),
-    dilutionGroup: text("dilution_group"),
-    notes: text("notes"),
-    createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(
-      () => new Date()
-    ),
-    updatedAt: integer("updated_at", { mode: "timestamp" }).$defaultFn(
-      () => new Date()
-    ),
-  },
-  (t) => [
-    index("cap_tables_org_idx").on(t.organizationId),
-    index("cap_tables_project_idx").on(t.projectId),
-  ]
-);
-
-// ============================================================
-// CAP TABLE SNAPSHOTS
-// ============================================================
-export const capTableSnapshots = sqliteTable("cap_table_snapshots", {
-  id: text("id")
-    .primaryKey()
-    .$defaultFn(() => crypto.randomUUID()),
-  organizationId: text("organization_id").references(() => organizations.id, {
-    onDelete: "cascade",
-  }),
-  label: text("label").notNull(),
-  snapshotData: text("snapshot_data").notNull(),
-  totalShares: real("total_shares"),
-  valuation: real("valuation"),
-  createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(
-    () => new Date()
-  ),
-});
-
-// ============================================================
 // PROJECT ASSETS
+// Files exported to R2
 // ============================================================
 export const projectAssets = sqliteTable("project_assets", {
   id: text("id")
@@ -447,6 +458,7 @@ export const projectAssets = sqliteTable("project_assets", {
     .notNull()
     .references(() => projects.id, { onDelete: "cascade" }),
   assetType: text("asset_type").notNull(),
+  // 'spec_markdown' | 'spec_json' | 'spec_pdf'
   fileName: text("file_name").notNull(),
   r2Key: text("r2_key").notNull(),
   fileSizeBytes: integer("file_size_bytes"),
@@ -490,6 +502,10 @@ export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type Project = typeof projects.$inferSelect;
 export type NewProject = typeof projects.$inferInsert;
+export type DiscoveryLink = typeof discoveryLinks.$inferSelect;
+export type NewDiscoveryLink = typeof discoveryLinks.$inferInsert;
+export type DiscoverySession = typeof discoverySessions.$inferSelect;
+export type NewDiscoverySession = typeof discoverySessions.$inferInsert;
 export type ProjectClassification =
   typeof projectClassifications.$inferSelect;
 export type NewProjectClassification =
@@ -500,5 +516,3 @@ export type SpecificationVersion = typeof specificationVersions.$inferSelect;
 export type NewSpecificationVersion =
   typeof specificationVersions.$inferInsert;
 export type GenerationLog = typeof generationLogs.$inferSelect;
-export type CapTable = typeof capTables.$inferSelect;
-export type NewCapTable = typeof capTables.$inferInsert;

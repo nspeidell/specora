@@ -2,12 +2,12 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, FolderOpen, Rocket, Settings } from "lucide-react";
+import { LayoutDashboard, FolderOpen, Link2, Settings } from "lucide-react";
 
 const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/projects",  label: "Projects",  icon: FolderOpen },
-  { href: "/launchpad", label: "Launchpad", icon: Rocket },
+  { href: "/links",     label: "Discovery Links", icon: Link2 },
   { href: "/settings",  label: "Settings",  icon: Settings },
 ];
 
