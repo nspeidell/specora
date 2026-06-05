@@ -13,6 +13,8 @@ import {
   Check,
   ChevronRight,
   Sparkles,
+  Layers,
+  GitBranch,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────
@@ -32,24 +34,24 @@ type GeneratedSpec = {
 
 type ParsedDocs = {
   techSpec: string;
+  operationalArchitecture: string;
+  scopeAnalysis: string;
   brandPlan: string;
-  marketingPlan: string;
+  gtmPlan: string;
 };
 
-type TabId = "tech" | "brand" | "marketing";
+type TabId = "tech" | "operational" | "scope" | "brand" | "gtm";
 
 // ─── Loading steps ────────────────────────────────────────────
+// Parallel generation: all calls fire simultaneously — ~20s total
 
 const LOADING_STEPS = [
-  { label: "Loading project data…", duration: 0 },
-  { label: "Drafting technical architecture spec…", duration: 3000 },
-  { label: "Writing database schema & API structure…", duration: 12000 },
-  { label: "Building sprint plan & file tree…", duration: 22000 },
-  { label: "Creating brand identity plan…", duration: 40000 },
-  { label: "Writing color palette & typography…", duration: 55000 },
-  { label: "Building go-to-market strategy…", duration: 70000 },
-  { label: "Writing launch & growth playbooks…", duration: 90000 },
-  { label: "Finalizing all three documents…", duration: 110000 },
+  { label: "Loading project data…",                     duration: 0 },
+  { label: "Compiling discovery responses…",            duration: 2000 },
+  { label: "Generating technical spec in parallel…",    duration: 5000 },
+  { label: "Extracting operational architecture…",      duration: 8000 },
+  { label: "Defining MVP scope and phase plan…",        duration: 11000 },
+  { label: "Finalizing all documents…",                 duration: 16000 },
 ];
 
 // ─── Markdown renderer (no external deps) ────────────────────
@@ -134,9 +136,11 @@ function DownloadButton({ content, filename, label }: { content: string; filenam
 // ─── Tab definition ───────────────────────────────────────────
 
 const TABS: { id: TabId; label: string; icon: typeof FileText; description: string }[] = [
-  { id: "tech", label: "Tech Spec", icon: FileText, description: "Full implementation guide for Claude Code / Cursor" },
-  { id: "brand", label: "Brand Plan", icon: Palette, description: "Identity, voice, colors, and visual guidelines" },
-  { id: "marketing", label: "Marketing Plan", icon: TrendingUp, description: "Go-to-market strategy and 90-day launch playbook" },
+  { id: "tech",         label: "Tech Spec",    icon: FileText,   description: "Implementation guide for Claude Code / Cursor — stack, schema, API, sprint plan, CLAUDE.md" },
+  { id: "operational",  label: "Operational",  icon: Layers,     description: "User roles, permissions, workflows, admin design, automation, event system" },
+  { id: "scope",        label: "Scope Plan",   icon: GitBranch,  description: "MVP vs future scope, phased build plan, risk register, success criteria" },
+  { id: "brand",        label: "Brand",        icon: Palette,    description: "Identity, voice, color palette, typography, and visual system" },
+  { id: "gtm",          label: "GTM",          icon: TrendingUp, description: "Go-to-market strategy, positioning, and launch playbook" },
 ];
 
 // ─── Main page ────────────────────────────────────────────────
@@ -199,7 +203,7 @@ export default function GeneratePage({
         }
 
         // Parse the three documents
-        let parsed: ParsedDocs = { techSpec: "", brandPlan: "", marketingPlan: "" };
+        let parsed: ParsedDocs = { techSpec: "", operationalArchitecture: "", scopeAnalysis: "", brandPlan: "", gtmPlan: "" };
         if (ver.fullSpecJson) {
           try {
             parsed = JSON.parse(ver.fullSpecJson);
@@ -237,7 +241,7 @@ export default function GeneratePage({
             Generating your spec
           </h1>
           <p className="text-sm text-muted-foreground mb-8">
-            Claude is writing your technical spec, brand plan, and marketing strategy. This takes 2–3 minutes.
+            Generating all documents in parallel. This takes 20–30 seconds.
           </p>
           <div className="space-y-2 text-left bg-muted/30 border border-border rounded-lg p-4">
             {LOADING_STEPS.map((step, i) => (
@@ -301,15 +305,19 @@ export default function GeneratePage({
   if (!docs) return null;
 
   const tabContent: Record<TabId, string> = {
-    tech: docs.techSpec,
-    brand: docs.brandPlan,
-    marketing: docs.marketingPlan,
+    tech:        docs.techSpec,
+    operational: docs.operationalArchitecture,
+    scope:       docs.scopeAnalysis,
+    brand:       docs.brandPlan,
+    gtm:         docs.gtmPlan,
   };
 
   const tabFilenames: Record<TabId, string> = {
-    tech: "tech-spec.md",
-    brand: "brand-plan.md",
-    marketing: "marketing-plan.md",
+    tech:        "tech-spec.md",
+    operational: "operational-architecture.md",
+    scope:       "scope-analysis.md",
+    brand:       "brand-plan.md",
+    gtm:         "gtm-plan.md",
   };
 
   const activeContent = tabContent[activeTab];
@@ -385,9 +393,11 @@ export default function GeneratePage({
         <div className="mt-6 border border-border rounded-xl bg-muted/10 p-5">
           <p className="text-sm font-medium text-foreground mb-3">Download all documents</p>
           <div className="flex flex-wrap gap-2">
-            <DownloadButton content={docs.techSpec} filename="tech-spec.md" label="Tech Spec (.md)" />
-            <DownloadButton content={docs.brandPlan} filename="brand-plan.md" label="Brand Plan (.md)" />
-            <DownloadButton content={docs.marketingPlan} filename="marketing-plan.md" label="Marketing Plan (.md)" />
+            <DownloadButton content={docs.techSpec} filename="tech-spec.md" label="Tech Spec" />
+            <DownloadButton content={docs.operationalArchitecture} filename="operational-architecture.md" label="Operational" />
+            <DownloadButton content={docs.scopeAnalysis} filename="scope-analysis.md" label="Scope Plan" />
+            {docs.brandPlan && <DownloadButton content={docs.brandPlan} filename="brand-plan.md" label="Brand" />}
+            {docs.gtmPlan && <DownloadButton content={docs.gtmPlan} filename="gtm-plan.md" label="GTM" />}
           </div>
           <p className="mt-3 text-xs text-muted-foreground/60">
             These Markdown files can be pasted directly into Claude Code, Cursor, or Windsurf to start your build.

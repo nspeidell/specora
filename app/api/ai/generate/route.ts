@@ -1,5 +1,6 @@
 import { auth } from "@clerk/nextjs/server";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
+import { D1Database } from "@cloudflare/workers-types";
 import { eq } from "drizzle-orm";
 import { getDB } from "@/lib/db/client";
 import {
@@ -24,6 +25,14 @@ import {
   type ClassificationInput,
   type ArchitectureInput,
 } from "@/lib/ai/prompts/spec-generation";
+import {
+  buildOperationalArchPrompt,
+  OperationalArchResultSchema,
+} from "@/lib/ai/prompts/operational-architecture";
+import {
+  buildScopeAnalysisPrompt,
+  ScopeAnalysisResultSchema,
+} from "@/lib/ai/prompts/scope-analysis";
 import { z } from "zod";
 
 const requestSchema = z.object({
@@ -39,8 +48,53 @@ function parseJsonField<T>(val: string | null, fallback: T): T {
   }
 }
 
+// ── Single-tool Claude call helper ──────────────────────────────
+async function callClaude(
+  client: Anthropic,
+  toolName: string,
+  toolDescription: string,
+  prompt: string,
+  maxTokens: number
+): Promise<string> {
+  const message = await client.messages.create({
+    model: "claude-sonnet-4-6",
+    max_tokens: maxTokens,
+    tools: [
+      {
+        name: toolName,
+        description: toolDescription,
+        input_schema: {
+          type: "object" as const,
+          properties: {
+            fullMarkdown: {
+              type: "string",
+              description: "Complete document as formatted Markdown",
+            },
+          },
+          required: ["fullMarkdown"],
+        },
+      },
+    ],
+    tool_choice: { type: "tool" as const, name: toolName },
+    messages: [{ role: "user", content: prompt }],
+  });
+
+  const block = message.content.find((b) => b.type === "tool_use");
+  if (!block || block.type !== "tool_use") {
+    throw new Error(`${toolName}: no tool_use block in response`);
+  }
+
+  const parsed = (block.input as { fullMarkdown?: unknown }).fullMarkdown;
+  if (typeof parsed !== "string" || !parsed) {
+    throw new Error(`${toolName}: fullMarkdown missing or not a string`);
+  }
+
+  return parsed;
+}
+
+// ── GET — polling ───────────────────────────────────────────────
+
 export async function GET(request: Request) {
-  // Allow polling: returns existing spec if done
   try {
     const { userId: clerkUserId } = await auth();
     if (!clerkUserId) {
@@ -54,7 +108,7 @@ export async function GET(request: Request) {
     }
 
     const { env } = await getCloudflareContext();
-    const db = getDB(env as { DB: D1Database });
+    const db = getDB(env as unknown as { DB: D1Database });
 
     const [user] = await db
       .select({ id: users.id })
@@ -85,6 +139,8 @@ export async function GET(request: Request) {
   }
 }
 
+// ── POST — generate ─────────────────────────────────────────────
+
 export async function POST(request: Request) {
   try {
     const { userId: clerkUserId } = await auth();
@@ -106,9 +162,9 @@ export async function POST(request: Request) {
 
     const { projectId } = parsed.data;
     const { env } = await getCloudflareContext();
-    const db = getDB(env as { DB: D1Database });
+    const db = getDB(env as unknown as { DB: D1Database });
 
-    // Resolve user
+    // ── Resolve user ─────────────────────────────────────────
     const [user] = await db
       .select({ id: users.id })
       .from(users)
@@ -119,9 +175,9 @@ export async function POST(request: Request) {
       return Response.json({ error: "User not found" }, { status: 404 });
     }
 
-    // Load project
+    // ── Load project ─────────────────────────────────────────
     const [project] = await db
-      .select({ id: projects.id, name: projects.name, description: projects.description, ownerId: projects.ownerId })
+      .select()
       .from(projects)
       .where(eq(projects.id, projectId))
       .limit(1);
@@ -130,7 +186,7 @@ export async function POST(request: Request) {
       return Response.json({ error: "Project not found" }, { status: 404 });
     }
 
-    // Return existing spec if already generated
+    // ── Return existing complete spec ─────────────────────────
     const [existing] = await db
       .select()
       .from(generatedSpecifications)
@@ -146,7 +202,7 @@ export async function POST(request: Request) {
       return Response.json({ spec: existing, version: existingVersion ?? null });
     }
 
-    // Load classification (required)
+    // ── Load classification (required) ────────────────────────
     const [classification] = await db
       .select()
       .from(projectClassifications)
@@ -155,12 +211,12 @@ export async function POST(request: Request) {
 
     if (!classification) {
       return Response.json(
-        { error: "No classification found — complete the classification step first." },
+        { error: "No classification found — complete classification first." },
         { status: 400 }
       );
     }
 
-    // Load architecture (required)
+    // ── Load architecture (required) ──────────────────────────
     const [archRec] = await db
       .select()
       .from(architectureRecommendations)
@@ -169,12 +225,12 @@ export async function POST(request: Request) {
 
     if (!archRec) {
       return Response.json(
-        { error: "No architecture recommendation found — complete the inference step first." },
+        { error: "No architecture found — complete the inference step first." },
         { status: 400 }
       );
     }
 
-    // Load discovery responses
+    // ── Load discovery responses ──────────────────────────────
     const [session] = await db
       .select({ id: discoverySessions.id })
       .from(discoverySessions)
@@ -201,16 +257,23 @@ export async function POST(request: Request) {
       stepNumber: r.stepNumber ?? 0,
     }));
 
-    // Set up Anthropic
+    // ── Set up Anthropic ──────────────────────────────────────
     const apiKey =
       (env as Record<string, string>).ANTHROPIC_API_KEY ??
       process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
       return Response.json({ error: "ANTHROPIC_API_KEY not configured" }, { status: 500 });
     }
-    const anthropic = new Anthropic({ apiKey });
+    const gatewayUrl =
+      (env as Record<string, string>).CLOUDFLARE_AI_GATEWAY_URL ??
+      process.env.CLOUDFLARE_AI_GATEWAY_URL;
 
-    // Create a generatedSpecifications record (or reuse failed one)
+    const anthropic = new Anthropic({
+      apiKey,
+      ...(gatewayUrl ? { baseURL: `${gatewayUrl}/anthropic` } : {}),
+    });
+
+    // ── Create or reuse spec record ───────────────────────────
     let specId: string;
     if (existing) {
       specId = existing.id;
@@ -229,7 +292,7 @@ export async function POST(request: Request) {
       });
     }
 
-    // Build shared inputs
+    // ── Build shared inputs ───────────────────────────────────
     const classInput: ClassificationInput = {
       productType: classification.productType,
       complexityLevel: classification.complexityLevel,
@@ -263,164 +326,125 @@ export async function POST(request: Request) {
       keyRisks: parseJsonField<string[]>(archRec.keyRisks, []),
     };
 
-    // ── 1. Generate Tech Spec ─────────────────────────────────
-    const techSpecPrompt = buildTechSpecPrompt(
-      project.name,
-      project.description ?? "",
-      classInput,
-      archInput,
-      responses
-    );
+    const intelligenceResult = project.intelligenceResult ?? null;
 
-    const techSpecMessage = await anthropic.messages.create({
-      model: "claude-sonnet-4-6",
-      max_tokens: 8000,
-      tools: [
-        {
-          name: "generate_tech_spec",
-          description: "Generate a complete implementation-ready technical specification as a Markdown document.",
-          input_schema: {
-            type: "object" as const,
-            properties: {
-              fullMarkdown: {
-                type: "string",
-                description: "Complete technical specification as formatted Markdown",
-              },
-            },
-            required: ["fullMarkdown"],
-          },
-        },
-      ],
-      tool_choice: { type: "tool" as const, name: "generate_tech_spec" },
-      messages: [{ role: "user", content: techSpecPrompt }],
+    // ── Run all 4 Claude calls in PARALLEL ────────────────────
+    // Parallel execution cuts total time from ~60s to ~15-20s.
+    const [techSpec, operationalArchitecture, scopeAnalysis, brandPlan] =
+      await Promise.all([
+        // 1. Technical implementation spec
+        callClaude(
+          anthropic,
+          "generate_tech_spec",
+          "Generate a complete implementation-ready technical specification.",
+          buildTechSpecPrompt(
+            project.name,
+            project.description ?? "",
+            classInput,
+            archInput,
+            responses
+          ),
+          6000
+        ),
+
+        // 2. Operational architecture (roles, workflows, automation)
+        callClaude(
+          anthropic,
+          "generate_operational_arch",
+          "Generate the operational architecture document covering roles, workflows, and automation.",
+          buildOperationalArchPrompt({
+            projectName: project.name,
+            productType: classification.productType,
+            complexityLabel: classification.complexityLabel,
+            responses,
+            intelligenceResult,
+          }),
+          5000
+        ),
+
+        // 3. Scope & phasing analysis (MVP vs future)
+        callClaude(
+          anthropic,
+          "generate_scope_analysis",
+          "Generate the scope and phasing analysis defining MVP and future iterations.",
+          buildScopeAnalysisPrompt({
+            projectName: project.name,
+            complexityLabel: classification.complexityLabel,
+            executionStyle: classification.executionStyle,
+            estimatedBuildWeeks: archRec.estimatedBuildWeeks ?? 12,
+            responses,
+            intelligenceResult,
+          }),
+          4000
+        ),
+
+        // 4. Brand plan (optional — only if brand direction was given)
+        responses.some((r) =>
+          ["brand_direction", "visual_style", "brand_personality"].includes(
+            r.questionKey
+          ) && r.responseText
+        )
+          ? callClaude(
+              anthropic,
+              "generate_brand_plan",
+              "Generate a brand identity plan.",
+              buildBrandPlanPrompt(
+                project.name,
+                project.description ?? "",
+                classInput,
+                responses
+              ),
+              4000
+            )
+          : Promise.resolve(""),
+      ]);
+
+    // ── Validate outputs ──────────────────────────────────────
+    const techSpecV = TechSpecResultSchema.safeParse({ fullMarkdown: techSpec });
+    const operationalV = OperationalArchResultSchema.safeParse({
+      fullMarkdown: operationalArchitecture,
     });
-
-    const techSpecBlock = techSpecMessage.content.find((b) => b.type === "tool_use");
-    if (!techSpecBlock || techSpecBlock.type !== "tool_use") {
-      await db.update(generatedSpecifications)
-        .set({ status: "failed", errorMessage: "Tech spec generation returned no tool result", updatedAt: new Date() })
-        .where(eq(generatedSpecifications.id, specId));
-      return Response.json({ error: "Tech spec generation failed" }, { status: 502 });
-    }
-
-    const techSpecValidated = TechSpecResultSchema.safeParse(techSpecBlock.input);
-    if (!techSpecValidated.success) {
-      await db.update(generatedSpecifications)
-        .set({ status: "failed", errorMessage: "Tech spec schema mismatch", updatedAt: new Date() })
-        .where(eq(generatedSpecifications.id, specId));
-      return Response.json({ error: "Tech spec schema mismatch" }, { status: 502 });
-    }
-
-    const techSpec = techSpecValidated.data.fullMarkdown;
-
-    // ── 2. Generate Brand Plan ────────────────────────────────
-    const brandPlanPrompt = buildBrandPlanPrompt(
-      project.name,
-      project.description ?? "",
-      classInput,
-      responses
-    );
-
-    const brandPlanMessage = await anthropic.messages.create({
-      model: "claude-sonnet-4-6",
-      max_tokens: 6000,
-      tools: [
-        {
-          name: "generate_brand_plan",
-          description: "Generate a complete brand identity plan as a Markdown document.",
-          input_schema: {
-            type: "object" as const,
-            properties: {
-              fullMarkdown: {
-                type: "string",
-                description: "Complete brand plan as formatted Markdown",
-              },
-            },
-            required: ["fullMarkdown"],
-          },
-        },
-      ],
-      tool_choice: { type: "tool" as const, name: "generate_brand_plan" },
-      messages: [{ role: "user", content: brandPlanPrompt }],
+    const scopeV = ScopeAnalysisResultSchema.safeParse({
+      fullMarkdown: scopeAnalysis,
     });
+    const brandV = BrandPlanResultSchema.safeParse({ fullMarkdown: brandPlan || "" });
 
-    const brandPlanBlock = brandPlanMessage.content.find((b) => b.type === "tool_use");
-    if (!brandPlanBlock || brandPlanBlock.type !== "tool_use") {
-      await db.update(generatedSpecifications)
-        .set({ status: "failed", errorMessage: "Brand plan generation returned no tool result", updatedAt: new Date() })
+    if (!techSpecV.success || !operationalV.success || !scopeV.success) {
+      const failedDoc = !techSpecV.success
+        ? "tech spec"
+        : !operationalV.success
+        ? "operational architecture"
+        : "scope analysis";
+      await db
+        .update(generatedSpecifications)
+        .set({
+          status: "failed",
+          errorMessage: `${failedDoc} schema validation failed`,
+          updatedAt: new Date(),
+        })
         .where(eq(generatedSpecifications.id, specId));
-      return Response.json({ error: "Brand plan generation failed" }, { status: 502 });
+      return Response.json(
+        { error: `Generation failed: ${failedDoc} schema mismatch` },
+        { status: 502 }
+      );
     }
 
-    const brandPlanValidated = BrandPlanResultSchema.safeParse(brandPlanBlock.input);
-    if (!brandPlanValidated.success) {
-      await db.update(generatedSpecifications)
-        .set({ status: "failed", errorMessage: "Brand plan schema mismatch", updatedAt: new Date() })
-        .where(eq(generatedSpecifications.id, specId));
-      return Response.json({ error: "Brand plan schema mismatch" }, { status: 502 });
-    }
-
-    const brandPlan = brandPlanValidated.data.fullMarkdown;
-
-    // ── 3. Generate Marketing Plan ────────────────────────────
-    const marketingPlanPrompt = buildMarketingPlanPrompt(
-      project.name,
-      project.description ?? "",
-      classInput,
-      responses
-    );
-
-    const marketingPlanMessage = await anthropic.messages.create({
-      model: "claude-sonnet-4-6",
-      max_tokens: 6000,
-      tools: [
-        {
-          name: "generate_marketing_plan",
-          description: "Generate a complete go-to-market and marketing plan as a Markdown document.",
-          input_schema: {
-            type: "object" as const,
-            properties: {
-              fullMarkdown: {
-                type: "string",
-                description: "Complete marketing plan as formatted Markdown",
-              },
-            },
-            required: ["fullMarkdown"],
-          },
-        },
-      ],
-      tool_choice: { type: "tool" as const, name: "generate_marketing_plan" },
-      messages: [{ role: "user", content: marketingPlanPrompt }],
-    });
-
-    const marketingPlanBlock = marketingPlanMessage.content.find((b) => b.type === "tool_use");
-    if (!marketingPlanBlock || marketingPlanBlock.type !== "tool_use") {
-      await db.update(generatedSpecifications)
-        .set({ status: "failed", errorMessage: "Marketing plan generation returned no tool result", updatedAt: new Date() })
-        .where(eq(generatedSpecifications.id, specId));
-      return Response.json({ error: "Marketing plan generation failed" }, { status: 502 });
-    }
-
-    const marketingPlanValidated = MarketingPlanResultSchema.safeParse(marketingPlanBlock.input);
-    if (!marketingPlanValidated.success) {
-      await db.update(generatedSpecifications)
-        .set({ status: "failed", errorMessage: "Marketing plan schema mismatch", updatedAt: new Date() })
-        .where(eq(generatedSpecifications.id, specId));
-      return Response.json({ error: "Marketing plan schema mismatch" }, { status: 502 });
-    }
-
-    const marketingPlan = marketingPlanValidated.data.fullMarkdown;
-
-    // ── Save everything ───────────────────────────────────────
+    // ── Save ──────────────────────────────────────────────────
     const versionId = crypto.randomUUID();
-    const fullSpecJson = JSON.stringify({ techSpec, brandPlan, marketingPlan });
+    const fullSpecJson = JSON.stringify({
+      techSpec: techSpecV.data.fullMarkdown,
+      operationalArchitecture: operationalV.data.fullMarkdown,
+      scopeAnalysis: scopeV.data.fullMarkdown,
+      brandPlan: brandV.success && brandPlan ? brandV.data.fullMarkdown : "",
+      gtmPlan: "", // future: on-demand generation
+    });
 
     await db.insert(specificationVersions).values({
       id: versionId,
       specificationId: specId,
       projectId,
       versionNumber: "1.0.0",
-      fullSpecMarkdown: techSpec,
+      fullSpecMarkdown: techSpecV.data.fullMarkdown,
       fullSpecJson,
       aiProvider: "anthropic",
       aiModel: "claude-sonnet-4-6",
@@ -436,7 +460,6 @@ export async function POST(request: Request) {
       })
       .where(eq(generatedSpecifications.id, specId));
 
-    // Update project status to complete
     await db
       .update(projects)
       .set({ status: "complete" })
@@ -457,8 +480,7 @@ export async function POST(request: Request) {
     return Response.json({ spec: savedSpec, version: savedVersion }, { status: 201 });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    const stack = err instanceof Error ? err.stack : undefined;
-    console.error("POST /api/ai/generate error:", message, stack);
-    return Response.json({ error: "Internal error", detail: message, stack }, { status: 500 });
+    console.error("POST /api/ai/generate error:", message);
+    return Response.json({ error: "Internal error", detail: message }, { status: 500 });
   }
 }
