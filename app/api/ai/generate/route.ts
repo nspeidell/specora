@@ -33,6 +33,7 @@ import {
   buildScopeAnalysisPrompt,
   ScopeAnalysisResultSchema,
 } from "@/lib/ai/prompts/scope-analysis";
+import { getPlan, isAtLimit } from "@/lib/stripe/plans";
 import { z } from "zod";
 
 const requestSchema = z.object({
@@ -173,6 +174,27 @@ export async function POST(request: Request) {
 
     if (!user) {
       return Response.json({ error: "User not found" }, { status: 404 });
+    }
+
+    // ── Usage gate ────────────────────────────────────────────
+    const fullUser = await db.query.users.findFirst({
+      where: eq(users.id, user.id),
+    });
+    if (fullUser) {
+      const plan = getPlan(fullUser.subscriptionTier);
+      const used = fullUser.generationsUsed ?? 0;
+      if (isAtLimit(plan, used)) {
+        return Response.json(
+          {
+            error: "Generation limit reached",
+            upgradeRequired: true,
+            tier: fullUser.subscriptionTier ?? "free",
+            used,
+            limit: plan.generationsLimit,
+          },
+          { status: 402 }
+        );
+      }
     }
 
     // ── Load project ─────────────────────────────────────────
@@ -464,6 +486,15 @@ export async function POST(request: Request) {
       .update(projects)
       .set({ status: "complete" })
       .where(eq(projects.id, projectId));
+
+    // Increment usage counter
+    await db
+      .update(users)
+      .set({
+        generationsUsed: (fullUser?.generationsUsed ?? 0) + 1,
+        updatedAt: new Date(),
+      })
+      .where(eq(users.id, user.id));
 
     const [savedSpec] = await db
       .select()

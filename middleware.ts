@@ -9,6 +9,10 @@ const isProtectedRoute = createRouteMatcher([
   "/api/ai(.*)",
   "/api/specs(.*)",
   "/api/interview/links(.*)",  // admin link creation requires auth
+  "/api/user(.*)",
+  "/api/stripe/checkout(.*)",
+  "/api/stripe/portal(.*)",
+  // NOTE: /api/stripe/webhook is intentionally public (uses Stripe signature)
 ]);
 
 // /interview/[token] and /api/interview/[token] are intentionally public

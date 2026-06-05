@@ -48,11 +48,11 @@ export default async function DashboardLayout({
           <div className="flex-1" />
           <div className="flex items-center gap-3">
             <Link
-              href="/projects/new"
+              href="/links"
               className="flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium gradient-brand text-white hover:opacity-90 transition-opacity"
             >
               <Zap className="w-3.5 h-3.5" />
-              New project
+              New discovery link
             </Link>
           </div>
         </header>

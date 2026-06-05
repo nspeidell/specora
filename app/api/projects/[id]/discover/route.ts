@@ -1,3 +1,4 @@
+import { D1Database } from "@cloudflare/workers-types";
 import { auth } from "@clerk/nextjs/server";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { eq, and } from "drizzle-orm";

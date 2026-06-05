@@ -1,3 +1,4 @@
+import { D1Database } from "@cloudflare/workers-types";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { Webhook } from "svix";
 import { getDB } from "@/lib/db/client";

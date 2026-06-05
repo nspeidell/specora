@@ -143,6 +143,39 @@ const TABS: { id: TabId; label: string; icon: typeof FileText; description: stri
   { id: "gtm",          label: "GTM",          icon: TrendingUp, description: "Go-to-market strategy, positioning, and launch playbook" },
 ];
 
+// ─── Upgrade button ───────────────────────────────────────────
+
+function UpgradeButton({ tier, label }: { tier: "pro" | "agency"; label: string }) {
+  const [loading, setLoading] = useState(false);
+
+  async function handleUpgrade() {
+    setLoading(true);
+    try {
+      const res = await fetch("/api/stripe/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tier }),
+      });
+      const data = await res.json() as { url?: string; error?: string };
+      if (data.url) {
+        window.location.href = data.url;
+      }
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <button
+      onClick={handleUpgrade}
+      disabled={loading}
+      className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg gradient-brand text-white text-sm font-semibold hover:opacity-90 transition-opacity disabled:opacity-50"
+    >
+      {loading ? "Redirecting…" : label}
+    </button>
+  );
+}
+
 // ─── Main page ────────────────────────────────────────────────
 
 export default function GeneratePage({
@@ -152,7 +185,7 @@ export default function GeneratePage({
 }) {
   const { id } = use(params);
 
-  const [status, setStatus] = useState<"loading" | "done" | "error">("loading");
+  const [status, setStatus] = useState<"loading" | "done" | "error" | "upgrade">("loading");
   const [loadingStep, setLoadingStep] = useState(0);
   const [startTime] = useState(Date.now());
   const [docs, setDocs] = useState<ParsedDocs | null>(null);
@@ -188,6 +221,11 @@ export default function GeneratePage({
         });
         const data = await res.json();
         if (cancelled) return;
+
+        if (res.status === 402) {
+          setStatus("upgrade");
+          return;
+        }
 
         if (!res.ok) {
           setError(data.detail ?? data.error ?? "Generation failed.");
@@ -270,6 +308,35 @@ export default function GeneratePage({
           <p className="mt-4 text-xs text-muted-foreground/50">
             Don't close this tab — generation is in progress.
           </p>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Upgrade required ───────────────────────────────────────
+  if (status === "upgrade") {
+    return (
+      <div className="min-h-full flex items-center justify-center px-4">
+        <div className="w-full max-w-md text-center">
+          <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-brand/10 border border-brand/20 mx-auto mb-6">
+            <Sparkles className="w-6 h-6 text-brand" />
+          </div>
+          <h1 className="text-lg font-semibold text-foreground mb-2">
+            Generation limit reached
+          </h1>
+          <p className="text-sm text-muted-foreground mb-6">
+            You&apos;ve used all your free generations. Upgrade to Pro or Agency for more.
+          </p>
+          <div className="flex flex-col gap-3">
+            <UpgradeButton tier="pro" label="Upgrade to Pro — $79/mo · 20 specs" />
+            <UpgradeButton tier="agency" label="Upgrade to Agency — $199/mo · Unlimited" />
+            <a
+              href="/settings"
+              className="text-xs text-muted-foreground hover:text-foreground transition-colors mt-1"
+            >
+              View billing details →
+            </a>
+          </div>
         </div>
       </div>
     );

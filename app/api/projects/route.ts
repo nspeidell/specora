@@ -1,3 +1,4 @@
+import { D1Database } from "@cloudflare/workers-types";
 import { auth, currentUser } from "@clerk/nextjs/server";
 import { TOTAL_STEPS } from "@/lib/discovery/questions";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
